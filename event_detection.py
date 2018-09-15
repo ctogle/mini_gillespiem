@@ -3,7 +3,7 @@ from collections import defaultdict, OrderedDict
 
 
 def event_detection(location, targets, batch,
-                    transient=0.2, min_x_dt=5, z=0.2, w=0.125):
+                    transient=0.1, min_x_dt=5, z=0.2, w=0.125):
     transient = int(batch.shape[-1] * transient)
     steady = batch[:, :, transient:]
 
