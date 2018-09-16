@@ -372,7 +372,7 @@ cdef inline double heaviside(double value):
     return src.getvalue()
 
 
-def get_simulator(system={}, path='./.simulators', name='gillespie'):
+def get_simulator(system={}, changed=True, path='./.simulators', name='gillespie'):
     '''
     Generate cython source code of a gillespie simulator for a chemical network
     '''
@@ -387,7 +387,6 @@ def get_simulator(system={}, path='./.simulators', name='gillespie'):
     versions = [int(v[v.rfind('_') + 1:v.rfind('.pyx')]) for v in versions]
     latest = max(versions) if versions else 0
     latestname = '%s_%d' % (name, latest)
-    changed = True
     if latestname in sys.modules:
         ext_path = './%s.pyx' % latestname
         if os.path.exists(ext_path):
@@ -414,6 +413,7 @@ def get_simulator(system={}, path='./.simulators', name='gillespie'):
         setup(script_args=['build_ext', '--inplace'],
               ext_modules=extensions,
               include_dirs=includes)
+    sys.path.insert(0, os.getcwd()) # is necessary?
     run = __import__(latestname).simulate
     os.chdir(cwd)
     return run
