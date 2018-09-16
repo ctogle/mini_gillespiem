@@ -1,12 +1,17 @@
 import multiprocessing as mp
+import subprocess
 import itertools
-import time
+import pickle
+import json
 import tqdm
+import time
+import os
 import numpy as np
 from simulator import get_simulator
 
 
 maxseed = 2147483647
+workpath = './.simulators'
 
 
 def mp_run(arg):
@@ -100,7 +105,36 @@ def simulate(system, processing=None, batchsize=1, axes=None,
     for iq, oq, p in workers:
         p.join()
 
-    #seeds, data = zip(*data)
+    return locations, data
+
+
+def mpi_simulate(system, processing=None, batchsize=1, axes=None, n_workers=8):
+    mpirun_spec = {
+        'seed': 0,
+        'system': system,
+        'processing': [(p.__module__, p.__name__) for p in processing],
+        'batchsize': batchsize,
+        'axes': tuple((a, tuple(v)) for a, v in axes),
+    }
+    mpirun_path = os.path.join(workpath, 'run.json')
+    with open(mpirun_path, 'w') as f:
+        f.write(json.dumps(mpirun_spec, indent=4))
+    mpiout_path = os.path.join(workpath, 'run.pkl')
+    mpiargs = (n_workers, 'cluster.py', mpirun_path, mpiout_path)
+    cmd = 'mpiexec -n %d python %s %s %s' % mpiargs
+    mpiprocess = subprocess.Popen(cmd,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        shell=True, universal_newlines=True)
+    for line in iter(mpiprocess.stdout.readline, ''):
+        print(line, end='')
+    mpiprocess.stdout.close()
+    return_code = mpiprocess.wait()
+    if return_code:
+        raise subprocess.CalledProcessError(return_code, cmd)
+    print('loading output data...')
+    with open(mpiout_path, 'rb') as f:
+        locations, data = pickle.loads(f.read())
+    print('loaded output data')
     return locations, data
 
 

@@ -1,20 +1,23 @@
-import subprocess
+"""Functions for MPI based parallelization of simulation.
+Module can be run as __main__ to for MPI parallelization.
+
+"""
 import itertools
 import numpy as np
 import pickle
 import json
 import time
 import sys
-import os
 import mpi
 from simulator import get_simulator
 
 
 maxseed = 2147483647
-workpath = './.simulators'
+#workpath = './.simulators'
 
 
 def worker():
+    """Worker function run by subordinate mpi processes."""
     print('worker %d start' % mpi.rank())
     while True:
         msg = mpi.pollrecv(mpi.mpiroot)
@@ -25,8 +28,7 @@ def worker():
             mpi.broadcast((mpi.host(), ), mpi.mpiroot)
             #print('worker %d host' % mpi.rank())
         elif msg == 'seed':
-            seed = mpi.pollrecv(mpi.mpiroot)
-            np.random.seed(seed)
+            np.random.seed(mpi.pollrecv(mpi.mpiroot))
             #print('worker %d seed %d' % (mpi.rank(), seed))
         elif msg == 'setup':
             system = mpi.pollrecv(mpi.mpiroot)
@@ -56,6 +58,17 @@ def worker():
 
 
 def setup_workers(seed, system, processing):
+    """Function to coordinate seeds and simulator compilation for
+    subordinate MPI processes.
+
+    Args:
+        seed (int): Seed for superior random number generator which
+            sets the seeds of subordinate MPI processes.
+        system (dict): Dictionary describing the network to simulate.
+        processing (seq): Sequence of module and function name pairs
+            which are imported and used by subordinate MPI processes.
+
+    """
     print('setting up workers')
     np.random.seed(seed)
     seeds = np.random.randint(0, maxseed, size=(mpi.size() - 1, ), dtype=int)
@@ -72,6 +85,14 @@ def setup_workers(seed, system, processing):
 
 
 def dispatch(mpirun_path, mpiout_path):
+    """Dispatch function for coordinating subordinate MPI processes.
+
+    Args:
+        mpirun_path (str): Path to json file describing required
+            simulation and processing.
+        mpiout_path (str): Path where trajectory and results are stored.
+
+    """
     print('start dispatch', mpi.rank(), mpirun_path)
     with open(mpirun_path, 'r') as f:
         mpirun = json.loads(f.read())
@@ -104,37 +125,6 @@ def dispatch(mpirun_path, mpiout_path):
         f.write(pickle.dumps((locations, data)))
     print('saved output data')
     print('end dispatch', mpi.rank(), mpirun_path)
-
-
-def simulate(system, processing=None, batchsize=1, axes=None,
-             n_workers=8):
-    mpirun_spec = {
-        'seed': 0,
-        'system': system,
-        'processing': [(p.__module__, p.__name__) for p in processing],
-        'batchsize': batchsize,
-        'axes': tuple((a, tuple(v)) for a, v in axes),
-    }
-    mpirun_path = os.path.join(workpath, 'run.json')
-    with open(mpirun_path, 'w') as f:
-        f.write(json.dumps(mpirun_spec, indent=4))
-    mpiout_path = os.path.join(workpath, 'run.pkl')
-    mpiargs = (n_workers, __file__, mpirun_path, mpiout_path)
-    cmd = 'mpiexec -n %d python %s %s %s' % mpiargs
-    mpiprocess = subprocess.Popen(cmd,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        shell=True, universal_newlines=True)
-    for line in iter(mpiprocess.stdout.readline, ''):
-        print(line, end='')
-    mpiprocess.stdout.close()
-    return_code = mpiprocess.wait()
-    if return_code:
-        raise subprocess.CalledProcessError(return_code, cmd)
-    print('loading output data...')
-    with open(mpiout_path, 'rb') as f:
-        locations, data = pickle.loads(f.read())
-    print('loaded output data')
-    return locations, data
 
 
 def walk_space(axes):

@@ -1,9 +1,11 @@
+"""Convenience functions for using MPI."""
 from mpi4py import MPI
 from collections import defaultdict
 import time
 
 
 mpiroot = 0
+"""The process rank responsible for coordination."""
 
 
 def root():
@@ -23,7 +25,13 @@ def host():
 
 
 def hosts():
-    # return a dict of ranks organized by hosts
+    """Collate process ranks by host name
+
+    Returns:
+        dict: Each host is associated with a list of ranks.
+        The root rank is associated with a nonexistent root host.
+
+    """
     hs = defaultdict(list)
     for c in range(size()):
         if c == mpiroot:
@@ -35,6 +43,14 @@ def hosts():
 
 
 def broadcast(m, *dests):
+    """Broadcast a message or messages to a set of ranks.
+
+    Args:
+        m (obj or tuple of objs): The content being sent.
+        *dests : Optional sequence of ranks to which to send content.
+        If none are provided, all other ranks are assumed.
+
+    """
     if size() > 1:
         if isinstance(m, tuple):
             for sm in m:
@@ -45,8 +61,8 @@ def broadcast(m, *dests):
                     MPI.COMM_WORLD.send(m, dest=l)
 
 
-def pollrecv(r = None,d = 0.0000001,md = 0.001,i = 0.0001,e = 0.001):
-    # effectively recv, but use polling to ease cores...
+def pollrecv(r=None, d=0.0000001, md=0.001, i=0.0001, e=0.001):
+    """Effectively recv, but uses attenuated polling to ease cores."""
     r = MPI.ANY_SOURCE if r is None else r
     while True:
         if MPI.COMM_WORLD.Iprobe(source = r):
@@ -57,8 +73,12 @@ def pollrecv(r = None,d = 0.0000001,md = 0.001,i = 0.0001,e = 0.001):
 
 
 def passrecv(r=None):
-    # check if recv can be immediately done, 
-    #   return message if so, None otherwise
+    """Check if anything is waiting to be received.
+
+    Returns:
+        obj: Content received if any was ready, otherwise None.
+
+    """
     r = MPI.ANY_SOURCE if r is None else r
     if MPI.COMM_WORLD.Iprobe(source=r):
         return MPI.COMM_WORLD.recv(source=r)
