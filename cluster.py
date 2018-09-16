@@ -2,6 +2,7 @@
 Module can be run as __main__ to for MPI parallelization.
 
 """
+
 import itertools
 import numpy as np
 import pickle
@@ -10,10 +11,7 @@ import time
 import sys
 import mpi
 from simulator import get_simulator
-
-
-maxseed = 2147483647
-#workpath = './.simulators'
+from config import maxseed, workpath
 
 
 def worker():

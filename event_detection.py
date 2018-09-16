@@ -1,17 +1,50 @@
+"""Functions to quantify bistable events in time series data."""
+
 import numpy as np
+import pandas as pd
 from collections import defaultdict, OrderedDict
 
 
 def event_detection(location, targets, batch,
                     transient=0.1, min_x_dt=5, z=0.2, w=0.125):
+    """Detect and quantify high count events in a bistable/excitable system.
+
+    Args:
+        location (dict): Dictionary describing the location in parameter space.
+        targets (list): List of target names associated with the time series data.
+        batch (numpy array): Time series data for a batch of trajectories. `batch`
+            has three dimensions representing which trajectory in the batch, which
+            target in a trajectory, and which time step in a target's trajectory.
+
+    Keyword Args:
+        transient (float): Fraction of time series data to ignore to ensure
+            only measurements at steady state are returned.
+        min_x_dt (int): Resolution limit in time index space for event detection.
+        z (float): Fraction of the determined effective maximum count which will
+            be the midpoint between the low and high transition thresholds.
+        w (float): Fraction of the determined effective maximum count which will
+            be the distance from the midpoint between the low and high transition
+            thresholds to those thresholds.
+
+    Returns:
+        dict: Dictionary with two entries. Event detection returns the batch of
+        trajectories for plotting under the `batch` key. Measurements of the
+        events averaged over the batch will be under the "results" key. This
+        includes the determined parameters of detection, the detected events,
+        and the following event count averaged quantities (and the Event Count):
+
+            - Mean Event Duration
+            - Mean Event Height
+            - StdDev Event Height
+            - Toxic Probability
+
+    """
     transient = int(batch.shape[-1] * transient)
     steady = batch[:, :, transient:]
 
     outputs = {}
     outputs['batch'] = batch
-    outputs['parameters'] = []
-    outputs['events'] = []
-    outputs['measurements'] = []
+    results = defaultdict(list)
     for i, target in enumerate(targets):
         parameters = None
         events = []
@@ -32,33 +65,58 @@ def event_detection(location, targets, batch,
                 es = segment_events(time[0], trajectory, high, low, min_x_dt)
                 measurements.append(measure_events(time[0], counts[j], es))
                 events.append([(u + transient, v + transient) for u, v in es])
-        outputs['parameters'].append(parameters)
-        outputs['events'].append(events)
-        outputs['measurements'].append(measurements)
 
+        results['parameters'].append(parameters)
+        results['events'].append(events)
+
+        measurements = pd.DataFrame(measurements)
+        if events and sum([len(e) for e in events]):
+            values = np.average(measurements,
+                                weights=measurements['Event Count'], axis=0)
+            values[-1] = measurements['Event Count'].sum()
+        else:
+            values = np.array((-1, -1, -1, 0, 0))
+
+        entry = location.copy()
+        entry['Target'] = target
+        for j, m in enumerate(measurements):
+            entry[m] = values[j]
+        results['measurements'].append(entry)
+
+    outputs['results'] = results
     return outputs
 
 
 def segment_events(x, y, high, low, min_dt):
-    '''
-    return measurements of events in a trajectory (x,y)
-    an event identifies a "high count state" entry/exit for a species
-    when y passes from below th to above th, a low->high transition may occur
-    when y passes from above tl to below tl, a high->low transition may occur
-    an event is always defined as a pair of transitions (low->high, high->low)
+    """Determine the event transitions in a time series trajectory (x, y).
+    An event identifies a "high count state" entry/exit for a species.
+    When `y` passes from below `th` to above `th`, a low to high transition may occur.
+    when `y` passes from above `tl` to below `tl`, a high to low transition may occur.
+    An event is always defined as a pair of transitions (low to high and high to low).
+    Events are filtered to meet the following standards:
 
-    filtered events have the following properties:
-      1) at least one point is above th (sufficiently tall)
-      2) the end points are below tl (system is low before/after event)
-      3) the event contains at least min_x_dt points
-            (sufficiently long compared to resolution)
-      4) there are at least min_x_dt points between any two events
-            (system stabilizes between events)
-      5) before and after any event there are at least min_x_dt points
-            whose maximum value is below th (pre/post low state is stable)
+        - At least one point is above th (i.e. sufficiently tall).
+        - The end points are below tl (i.e. system is low before/after event).
+        - The event contains at least `min_dt` points
+          (i.e. sufficiently long compared to resolution).
+        - There are at least `min_dt` points between any two events
+          (i.e. system stabilizes between events).
+        - Before and after any event there are at least `min_dt` points
+          whose maximum value is below `th` (i.e. pre/post low state is stable).
 
-    * the word "stable" means no transition happened for min_dt consecutive points
-    '''
+    The word "stable" means no transition happened for `min_dt` consecutive points.
+
+    Args:
+        x (numpy array): The time axis of the trajectory.
+        y (numpy array): The count axis of the trajectory.
+        high (float): The low to high transition threshold.
+        low (float): The high to low transition threshold.
+        min_dt (int): A resolution limit for how events are defined.
+
+    Returns:
+        list: A list of transition pairs associated with each high count event.
+
+    """
     if (high - low <= 4) or y.min() > low or y.max() < high:
         return []
 
@@ -129,6 +187,18 @@ def segment_events(x, y, high, low, min_dt):
 
 
 def measure_events(time, counts, events):
+    """Compute statistics averaged over a single trajectory.
+
+    Args:
+        time (numpy array): The time axis of a trajectory.
+        counts (numpy array): The counts of a single target for a trajectory.
+        events (list): List of tuples where each tuple has the start and stop
+            index of a high count event.
+
+    Returns:
+        OrderedDict: Ordered dictionary with trajectory averaged measurements.
+
+    """
     labels = [
         'Mean Event Duration',
         'Mean Event Height',

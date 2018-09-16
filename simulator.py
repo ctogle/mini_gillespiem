@@ -8,6 +8,7 @@ import glob
 import sys
 import os
 import re
+from config import workpath
 
 
 def write_nparray(src, name, shape, dtype='numpy.double', spacer='\n    '):
@@ -372,17 +373,17 @@ cdef inline double heaviside(double value):
     return src.getvalue()
 
 
-def get_simulator(system={}, changed=True, path='./.simulators', name='gillespie'):
+def get_simulator(system={}, changed=True, name='gillespie'):
     '''
     Generate cython source code of a gillespie simulator for a chemical network
     '''
     source = write_simulator(system)
 
-    if not os.path.isdir(path):
-        os.makedirs(path, exist_ok=True)
+    if not os.path.isdir(workpath):
+        os.makedirs(workpath, exist_ok=True)
 
     cwd = os.getcwd()
-    os.chdir(path)
+    os.chdir(workpath)
     versions = glob.glob('./%s_*.pyx' % name)
     versions = [int(v[v.rfind('_') + 1:v.rfind('.pyx')]) for v in versions]
     latest = max(versions) if versions else 0

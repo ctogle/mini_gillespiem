@@ -8,10 +8,7 @@ import time
 import os
 import numpy as np
 from simulator import get_simulator
-
-
-maxseed = 2147483647
-workpath = './.simulators'
+from config import maxseed, workpath
 
 
 def mp_run(arg):
