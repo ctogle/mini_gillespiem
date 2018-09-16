@@ -1,13 +1,14 @@
 import multiprocessing as mp
 import subprocess
-import itertools
 import pickle
 import json
 import tqdm
 import time
 import os
 import numpy as np
+import pandas as pd
 from simulator import get_simulator
+from pscan import walk_space
 from config import maxseed, workpath
 
 
@@ -34,15 +35,6 @@ def worker(n, in_q, out_q, seed, system, processing):
         else:
             print('msg (%d):' % n, msg)
         msg = in_q.get()
-
-
-def walk_space(axes):
-    names, values = zip(*axes)
-    n = np.cumprod([len(av) for av in values])[-1]
-    locations = list(itertools.product(*values))
-    locations = dict((a, l) for a, l in zip(names, zip(*locations)))
-    trajectory = (dict((a, locations[a][l]) for a in names) for l in range(n))
-    return locations, list(enumerate(trajectory))
 
 
 def simulate(system, processing=None, batchsize=1, axes=None,
@@ -109,7 +101,7 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None, n_workers=8):
     mpirun_spec = {
         'seed': 0,
         'system': system,
-        'processing': [(p.__module__, p.__name__) for p in processing],
+        'processing': [((p.__module__, p.__name__), t) for p, t in processing],
         'batchsize': batchsize,
         'axes': tuple((a, tuple(v)) for a, v in axes),
     }
@@ -132,6 +124,17 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None, n_workers=8):
     with open(mpiout_path, 'rb') as f:
         locations, data = pickle.loads(f.read())
     print('loaded output data')
-    return locations, data
+
+    pspace = pd.DataFrame(locations)
+    if processing:
+        pscans = []
+        for j, (process, targets) in enumerate(processing):
+            entries = []
+            for (l, location) in pspace.iterrows():
+                entries.extend(data[l][j])
+            pscans.append(pd.DataFrame(entries))
+        data = pscans
+
+    return pspace, data
 
 

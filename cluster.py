@@ -3,7 +3,6 @@ Module can be run as __main__ to for MPI parallelization.
 
 """
 
-import itertools
 import numpy as np
 import pickle
 import json
@@ -11,6 +10,7 @@ import time
 import sys
 import mpi
 from simulator import get_simulator
+from pscan import walk_space
 from config import maxseed, workpath
 
 
@@ -27,7 +27,7 @@ def worker():
             #print('worker %d host' % mpi.rank())
         elif msg == 'seed':
             np.random.seed(mpi.pollrecv(mpi.mpiroot))
-            #print('worker %d seed %d' % (mpi.rank(), seed))
+            #print('worker %d seed' % mpi.rank())
         elif msg == 'setup':
             system = mpi.pollrecv(mpi.mpiroot)
             processing = mpi.pollrecv(mpi.mpiroot)
@@ -35,9 +35,10 @@ def worker():
             if install:
                 print('worker %d setting up' % mpi.rank())
             run = get_simulator(system, changed=install)
-            for j, (module, function) in enumerate(processing):
-                processing[j] = __import__(module).__getattribute__(function)
-            targets = system.get('targets', [])
+            for j, ((module, function), targets) in enumerate(processing):
+                process = __import__(module).__getattribute__(function)
+                processing[j] = (process, targets)
+            batch_targets = system.get('targets', [])
             mpi.broadcast(('complete', ), mpi.mpiroot)
             print('worker %d ready to simulate' % mpi.rank())
         elif msg == 'run':
@@ -48,7 +49,10 @@ def worker():
             seeds = np.random.randint(0, maxseed, size=(batchsize, ), dtype=int)
             batch = np.array([run(s, **location) for s in seeds])
             if processing:
-                batch = [p(location, targets, batch) for p in processing]
+                process_batch = []
+                for p, t in processing:
+                    process_batch.append(p(location, batch_targets, batch, t))
+                batch = process_batch
             mpi.broadcast((mpi.rank(), l, batch), mpi.mpiroot)
             print('worker %d ran location %d' % (mpi.rank(), l))
         else:
@@ -69,7 +73,7 @@ def setup_workers(seed, system, processing):
     """
     print('setting up workers')
     np.random.seed(seed)
-    seeds = np.random.randint(0, maxseed, size=(mpi.size() - 1, ), dtype=int)
+    seeds = np.random.randint(0, maxseed, size=(mpi.size(), ), dtype=int)
     for c, seed in zip(range(mpi.size()), seeds):
         if not c == mpi.mpiroot:
             mpi.broadcast(('seed', seed), c)
@@ -95,7 +99,7 @@ def dispatch(mpirun_path, mpiout_path):
     with open(mpirun_path, 'r') as f:
         mpirun = json.loads(f.read())
     setup_workers(mpirun['seed'], mpirun['system'], mpirun['processing'])
-    idle, busy = [j for j in range(mpi.size()) if not (j == mpi.rank())], []
+    idle, busy = [j for j in range(mpi.size()) if not (j == mpi.mpiroot)], []
     if mpirun['axes']:
         locations, trajectory = walk_space(mpirun['axes'])
         data = [None] * len(trajectory)
@@ -123,15 +127,6 @@ def dispatch(mpirun_path, mpiout_path):
         f.write(pickle.dumps((locations, data)))
     print('saved output data')
     print('end dispatch', mpi.rank(), mpirun_path)
-
-
-def walk_space(axes):
-    names, values = zip(*axes)
-    n = np.cumprod([len(av) for av in values])[-1]
-    locations = list(itertools.product(*values))
-    locations = dict((a, l) for a, l in zip(names, zip(*locations)))
-    trajectory = (dict((a, locations[a][l]) for a in names) for l in range(n))
-    return locations, list(enumerate(trajectory))
 
 
 if __name__ == '__main__':

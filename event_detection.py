@@ -5,16 +5,18 @@ import pandas as pd
 from collections import defaultdict, OrderedDict
 
 
-def event_detection(location, targets, batch,
+def event_detection(location, batch_targets, batch, process_targets,
                     transient=0.1, min_x_dt=5, z=0.2, w=0.125):
     """Detect and quantify high count events in a bistable/excitable system.
 
     Args:
         location (dict): Dictionary describing the location in parameter space.
-        targets (list): List of target names associated with the time series data.
+        batch_targets (seq): List of target names 1-1 with the time series data.
         batch (numpy array): Time series data for a batch of trajectories. `batch`
             has three dimensions representing which trajectory in the batch, which
             target in a trajectory, and which time step in a target's trajectory.
+        process_targets (seq): Subset of `batch_targets` on which to perform
+            event detection and measurements.
 
     Keyword Args:
         transient (float): Fraction of time series data to ignore to ensure
@@ -27,25 +29,36 @@ def event_detection(location, targets, batch,
             thresholds to those thresholds.
 
     Returns:
-        dict: Dictionary with two entries. Event detection returns the batch of
-        trajectories for plotting under the `batch` key. Measurements of the
-        events averaged over the batch will be under the "results" key. This
-        includes the determined parameters of detection, the detected events,
-        and the following event count averaged quantities (and the Event Count):
+        list: List of results which is 1-1 with `process_targets`. Each result is a
+        dictionary of measurements. Each dictionary has the following results:
 
-            - Mean Event Duration
-            - Mean Event Height
-            - StdDev Event Height
-            - Toxic Probability
+            - Target (str): The batch target associated with the measurements.
+            - Batch (numpy array): The time series trajectories of the target.
+            - Events (list): List of pairs of transition indices of detected events.
+            - Parameters (dict): Dictionary of determined event detection parameters.
+            - Mean Event Duration (float): The mean event duration computed by
+                averaging event durations over each trajectory and then computing
+                a weighted average of these averages where the event counts of the
+                trajectories are the weights.
+            - Mean Event Height (float): The mean event height computed by
+                averaging event heights over each trajectory and then computing
+                a weighted average of these averages where the event counts of the
+                trajectories are the weights.
+            - StdDev Event Height (float): The standard deviation of event height
+                computed by a weighted average of event height standard deviations
+                computed from each trajectory where the event counts of the
+                trajectories are the weights.
+            - Toxic Probability (float): The fractions of each trajectory spent in
+                the high toxin state are weight averaged where the event counts of
+                the trajectories are the weights.
 
     """
     transient = int(batch.shape[-1] * transient)
     steady = batch[:, :, transient:]
 
-    outputs = {}
-    outputs['batch'] = batch
-    results = defaultdict(list)
-    for i, target in enumerate(targets):
+    results = []
+    for target in process_targets:
+        i = batch_targets.index(target)
         parameters = None
         events = []
         measurements = []
@@ -59,15 +72,17 @@ def event_detection(location, targets, batch,
             w_0 = eff_max * w
             high = min(eff_max - 1, z_0 + w_0)
             low = max(1, z_0 - w_0)
-            parameters = {'high': high, 'low': low, 'min_dt': min_x_dt}
+            parameters = {
+                'high': high,
+                'low': low,
+                'min_dt': min_x_dt,
+                'effective_max': eff_max
+            }
 
             for j, trajectory in enumerate(counts):
                 es = segment_events(time[0], trajectory, high, low, min_x_dt)
                 measurements.append(measure_events(time[0], counts[j], es))
                 events.append([(u + transient, v + transient) for u, v in es])
-
-        results['parameters'].append(parameters)
-        results['events'].append(events)
 
         measurements = pd.DataFrame(measurements)
         if events and sum([len(e) for e in events]):
@@ -79,12 +94,14 @@ def event_detection(location, targets, batch,
 
         entry = location.copy()
         entry['Target'] = target
+        entry['Batch'] = batch[:, i, :]
+        entry['Events'] = events
+        entry['Parameters'] = parameters
         for j, m in enumerate(measurements):
             entry[m] = values[j]
-        results['measurements'].append(entry)
+        results.append(entry)
 
-    outputs['results'] = results
-    return outputs
+    return results
 
 
 def segment_events(x, y, high, low, min_dt):
