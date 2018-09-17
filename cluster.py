@@ -45,7 +45,7 @@ def worker():
             l = mpi.pollrecv(mpi.mpiroot)
             location = mpi.pollrecv(mpi.mpiroot)
             batchsize = mpi.pollrecv(mpi.mpiroot)
-            print('worker %d run location %d' % (mpi.rank(), l))
+            #print('worker %d run location %d' % (mpi.rank(), l))
             seeds = np.random.randint(0, maxseed, size=(batchsize, ), dtype=int)
             batch = np.array([run(s, **location) for s in seeds])
             if processing:

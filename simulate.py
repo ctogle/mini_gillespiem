@@ -5,6 +5,7 @@ import json
 import tqdm
 import time
 import os
+import re
 import numpy as np
 import pandas as pd
 from simulator import get_simulator
@@ -97,7 +98,28 @@ def simulate(system, processing=None, batchsize=1, axes=None,
     return locations, data
 
 
-def mpi_simulate(system, processing=None, batchsize=1, axes=None, n_workers=8):
+def progress_bars(n_workers, n_locations):
+
+    update_re = re.compile(r'^worker \d+ ran location \d+$')
+    update_bar = tqdm.tqdm(total=n_locations, desc='Scanning Parameters')
+
+    pbars = [
+        (update_re, update_bar),
+    ]
+
+    def handle_input_line(l):
+        for exp, bar in pbars:
+            if exp.match(l):
+                bar.update(1)
+                break
+        else:
+            print(l, end='')
+
+    return handle_input_line
+
+
+def mpi_simulate(system, processing=None, batchsize=1, axes=None,
+                 n_workers=8, hostfile=None):
     mpirun_spec = {
         'seed': 0,
         'system': system,
@@ -105,21 +127,38 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None, n_workers=8):
         'batchsize': batchsize,
         'axes': tuple((a, tuple(v)) for a, v in axes),
     }
+
     mpirun_path = os.path.join(workpath, 'run.json')
+    mpiout_path = os.path.join(workpath, 'run.pkl')
+
     with open(mpirun_path, 'w') as f:
         f.write(json.dumps(mpirun_spec, indent=4))
-    mpiout_path = os.path.join(workpath, 'run.pkl')
-    mpiargs = (n_workers, 'cluster.py', mpirun_path, mpiout_path)
-    cmd = 'mpiexec -n %d python %s %s %s' % mpiargs
+
+
+    if hostfile:
+        mpiconfig = '--nooversubscribe --hostfile %s' % hostfile
+    else:
+        mpiconfig = '-n %d' % n_workers
+    mpiargs = (mpiconfig, 'cluster.py', mpirun_path, mpiout_path)
+    #cmd = 'mpiexec -n %d python %s %s %s' % mpiargs
+    cmd = 'mpiexec %s python %s %s %s' % mpiargs
+
+    n_locations = np.cumprod([len(v) for a, v in axes])[-1]
+    line_handler = progress_bars(n_workers, n_locations)
+
     mpiprocess = subprocess.Popen(cmd,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         shell=True, universal_newlines=True)
     for line in iter(mpiprocess.stdout.readline, ''):
-        print(line, end='')
+        line_handler(line)
     mpiprocess.stdout.close()
+    #pbar.close()
+
     return_code = mpiprocess.wait()
     if return_code:
         raise subprocess.CalledProcessError(return_code, cmd)
+
+
     print('loading output data...')
     with open(mpiout_path, 'rb') as f:
         locations, data = pickle.loads(f.read())

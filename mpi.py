@@ -84,3 +84,7 @@ def passrecv(r=None):
         return MPI.COMM_WORLD.recv(source=r)
 
 
+if __name__ == '__main__':
+    print('hello world! (%d on %s)' % (rank(), host()))
+
+
