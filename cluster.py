@@ -82,7 +82,11 @@ def setup_workers(seed, system, processing):
         if not host == 'root':
             for j, c in enumerate(cluster[host]):
                 mpi.broadcast(('setup', system, processing, j == 0), c)
-                assert(mpi.pollrecv(c) == 'complete')
+                if j == 0:
+                    assert(mpi.pollrecv(c) == 'complete')
+            for j, c in enumerate(cluster[host]):
+                if j > 0:
+                    assert(mpi.pollrecv(c) == 'complete')
     print('set up workers')
 
 

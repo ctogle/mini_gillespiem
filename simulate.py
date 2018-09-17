@@ -4,6 +4,7 @@ import pickle
 import json
 import tqdm
 import time
+import sys
 import os
 import re
 import numpy as np
@@ -134,20 +135,19 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None,
     with open(mpirun_path, 'w') as f:
         f.write(json.dumps(mpirun_spec, indent=4))
 
-
     if hostfile:
         mpiconfig = '--nooversubscribe --hostfile %s' % hostfile
     else:
         mpiconfig = '-n %d' % n_workers
-    mpiargs = (mpiconfig, 'cluster.py', mpirun_path, mpiout_path)
-    #cmd = 'mpiexec -n %d python %s %s %s' % mpiargs
-    cmd = 'mpiexec %s python %s %s %s' % mpiargs
+    mpiargs = (mpiconfig, sys.executable, 'cluster.py',
+               mpirun_path, mpiout_path)
+    cmd = 'mpiexec %s %s %s %s %s' % mpiargs
 
     n_locations = np.cumprod([len(v) for a, v in axes])[-1]
     line_handler = progress_bars(n_workers, n_locations)
 
     mpiprocess = subprocess.Popen(cmd,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         shell=True, universal_newlines=True)
     for line in iter(mpiprocess.stdout.readline, ''):
         line_handler(line)
@@ -157,7 +157,6 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None,
     return_code = mpiprocess.wait()
     if return_code:
         raise subprocess.CalledProcessError(return_code, cmd)
-
 
     print('loading output data...')
     with open(mpiout_path, 'rb') as f:
