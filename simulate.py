@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import multiprocessing as mp
 import subprocess
 import pickle
@@ -8,10 +9,10 @@ import sys
 import os
 import re
 import numpy as np
-import pandas as pd
 from simulator import get_simulator
-from pscan import walk_space
+from pscan import walk_space, organize_pscans
 from config import maxseed, workpath
+import mpi
 
 
 def mp_run(arg):
@@ -39,7 +40,7 @@ def worker(n, in_q, out_q, seed, system, processing):
         msg = in_q.get()
 
 
-def simulate(system, processing=None, batchsize=1, axes=None,
+def simulate(system, processing=[], batchsize=1, axes=None,
              n_workers=4):
     np.random.seed(0)
     seeds = np.random.randint(0, maxseed, size=(n_workers, ), dtype=int)
@@ -99,27 +100,47 @@ def simulate(system, processing=None, batchsize=1, axes=None,
     return locations, data
 
 
-def progress_bars(n_workers, n_locations):
+@contextmanager
+def progress_bars(n_locations):
 
+    dispatcher_start_re = re.compile(r'^dispatch \d+ start: \d+ workers$')
+    worker_start_re = re.compile(r'^worker \d+ start$')
+    setting_up_re = re.compile(r'^worker \d+ setting up$')
+    setup_re = re.compile(r'^worker \d+ ready to simulate$')
     update_re = re.compile(r'^worker \d+ ran location \d+$')
+
     update_bar = tqdm.tqdm(total=n_locations, desc='Scanning Parameters')
 
-    pbars = [
-        (update_re, update_bar),
-    ]
-
-    def handle_input_line(l):
-        for exp, bar in pbars:
-            if exp.match(l):
-                bar.update(1)
-                break
+    def handle_input_line(l, n_workers=-1):
+        if update_re.match(l):
+            r = l.split()[1]
+            d = 'worker %s / %d ran location' % (r, n_workers)
+            update_bar.set_description(d)
+            update_bar.update(1)
+        elif dispatcher_start_re.match(l):
+            n_workers = int(l.split()[3])
+        elif worker_start_re.match(l):
+            r = l.split()[1]
+            d = 'started worker %s / %d' % (r, n_workers)
+            update_bar.set_description(d)
+        elif setting_up_re.match(l):
+            r = l.split()[1]
+            d = 'worker %s / %d setting up' % (r, n_workers)
+            update_bar.set_description(d)
+        elif setup_re.match(l):
+            r = l.split()[1]
+            d = 'worker %s / %d setup up' % (r, n_workers)
+            update_bar.set_description(d)
         else:
             print(l, end='')
 
-    return handle_input_line
+    try:
+        yield handle_input_line
+    finally:
+        update_bar.close()
 
 
-def mpi_simulate(system, processing=None, batchsize=1, axes=None,
+def mpi_simulate(system, processing=[], batchsize=1, axes=None,
                  n_workers=8, hostfile=None):
     mpirun_spec = {
         'seed': 0,
@@ -144,15 +165,13 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None,
     cmd = 'mpiexec %s %s %s %s %s' % mpiargs
 
     n_locations = np.cumprod([len(v) for a, v in axes])[-1]
-    line_handler = progress_bars(n_workers, n_locations)
-
-    mpiprocess = subprocess.Popen(cmd,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        shell=True, universal_newlines=True)
-    for line in iter(mpiprocess.stdout.readline, ''):
-        line_handler(line)
-    mpiprocess.stdout.close()
-    #pbar.close()
+    with progress_bars(n_locations) as line_handler:
+        mpiprocess = subprocess.Popen(cmd,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            shell=True, universal_newlines=True)
+        for line in iter(mpiprocess.stdout.readline, ''):
+            line_handler(line)
+        mpiprocess.stdout.close()
 
     return_code = mpiprocess.wait()
     if return_code:
@@ -163,16 +182,7 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None,
         locations, data = pickle.loads(f.read())
     print('loaded output data')
 
-    pspace = pd.DataFrame(locations)
-    if processing:
-        pscans = []
-        for j, (process, targets) in enumerate(processing):
-            entries = []
-            for (l, location) in pspace.iterrows():
-                entries.extend(data[l][j])
-            pscans.append(pd.DataFrame(entries))
-        data = pscans
-
-    return pspace, data
+    pspace, pscans = organize_pscans(locations, data, len(processing))
+    return pspace, pscans
 
 

@@ -2,6 +2,7 @@
 
 import itertools
 import numpy as np
+import pandas as pd
 
 
 def pscan_view(pscan, subspace, targets):
@@ -23,6 +24,19 @@ def pscan_view(pscan, subspace, targets):
     istarget = pscan['Target'].apply(lambda t: t in set(targets))
     selection = pscan.loc[istarget & subpscan]
     return selection
+
+
+def organize_pscans(locations, data, n_processing):
+    pspace = pd.DataFrame(locations)
+    if n_processing:
+        pscans = []
+        for j in range(n_processing):
+            entries = []
+            for (l, location) in pspace.iterrows():
+                entries.extend(data[l][j])
+            pscans.append(pd.DataFrame(entries))
+        data = pscans
+    return pspace, data
 
 
 def walk_space(axes):

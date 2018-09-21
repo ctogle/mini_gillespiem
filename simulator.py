@@ -202,13 +202,19 @@ def gibson_lookup(rxns,funcs):
         for alw in alwayses:
             fratex = fnames.index(rxns[alw][0])
             func,fuu = funcs[fratex]
-            if depends_on(func,fuu,funcs,'time'):
-                lookups[rdx].append(alw)
-                continue
-            for affs in affected_species:
-                if depends_on(func,fuu,funcs,affs):
+            try:
+                if depends_on(func,fuu,funcs,'time'):
                     lookups[rdx].append(alw)
-                    break
+                    continue
+            except RecursionError:
+                raise RecursionError('function %s caused recusion in "depends_on"' % func)
+            for affs in affected_species:
+                try:
+                    if depends_on(func,fuu,funcs,affs):
+                        lookups[rdx].append(alw)
+                        break
+                except RecursionError:
+                    raise RecursionError('function %s caused recusion in "depends_on"' % func)
         for rdx2 in range(rcnt):
             r2 = rxns[rdx2]
             for u2 in r2[1]:
@@ -393,14 +399,14 @@ def get_simulator(system={}, changed=True, name='gillespie'):
         if os.path.exists(ext_path):
             with open(ext_path, 'r') as fh:
                 if source == fh.read():
-                    print('existing cython code is identical...')
+                    #print('existing cython code is identical...')
                     changed = False
         if changed:
-            print('incrementing extension version...')
+            #print('incrementing extension version...')
             for old in glob.glob('./%s_*' % name):
                 os.remove(old)
             latestname = '%s_%d' % (name, latest + 1)
-    print('ext module version:', latestname, latest)
+    #print('ext module version:', latestname, latest)
     ext_path = './%s.pyx' % latestname
     if changed:
         with open(ext_path, 'w') as fh:
