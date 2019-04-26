@@ -103,7 +103,7 @@ def dispatch(mpirun_path, mpiout_path):
     if mpirun['axes']:
         locations, trajectory = walk_space(mpirun['axes'])
         data = [None] * len(trajectory)
-        while None in data:
+        while any([datum is None for datum in data]):
             if idle and trajectory:
                 c = idle.pop(0)
                 l, loc = trajectory.pop(0)

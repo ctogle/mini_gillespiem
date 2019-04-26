@@ -56,7 +56,7 @@ def simulate(system, processing=None, batchsize=1, axes=None,
         locations, trajectory = walk_space(axes)
 
         data = [None] * len(trajectory)
-        while None in data:
+        while any([datum is None for datum in data]):
             if idle and trajectory:
                 n = idle.pop(0)
                 iq, oq, p = workers[n]
@@ -108,8 +108,10 @@ def progress_bars(n_workers, n_locations):
     ]
 
     def handle_input_line(l):
+        print('>', l, end='')
         for exp, bar in pbars:
             if exp.match(l):
+                print('match', l, end='')
                 bar.update(1)
                 break
         else:
@@ -131,6 +133,7 @@ def mpi_simulate(system, processing=None, batchsize=1, axes=None,
     mpirun_path = os.path.join(workpath, 'run.json')
     mpiout_path = os.path.join(workpath, 'run.pkl')
 
+    os.makedirs(os.path.dirname(mpirun_path), exist_ok=True)
     with open(mpirun_path, 'w') as f:
         f.write(json.dumps(mpirun_spec, indent=4))
 

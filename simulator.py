@@ -242,7 +242,7 @@ def write_simulator(system):
 
     src = StringIO()
     src.write('''
-# cython:profile=False,boundscheck=False,nonecheck=False,wraparound=False,initializedcheck=False,cdivision=True
+# cython:profile=False,boundscheck=False,nonecheck=False,wraparound=False,initializedcheck=False,cdivision=True,language_level=3
 ###################################
 # imports:
 from libc.math cimport log
