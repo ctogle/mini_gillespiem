@@ -6,7 +6,8 @@ from collections import defaultdict, OrderedDict
 
 
 def event_detection(location, batch_targets, batch, process_targets,
-                    transient=0.1, min_x_dt=5, z=0.2, w=0.125):
+                    transient=0.1, min_x_dt=5, z=0.2, w=0.125,
+                    many_trajectories=1):
     """Detect and quantify high count events in a bistable/excitable system.
 
     Args:
@@ -27,6 +28,7 @@ def event_detection(location, batch_targets, batch, process_targets,
         w (float): Fraction of the determined effective maximum count which will
             be the distance from the midpoint between the low and high transition
             thresholds to those thresholds.
+        many_trajectories (int): How many trajectories in `batch` to output.
 
     Returns:
         list: List of results which is 1-1 with `process_targets`. Each result is a
@@ -94,7 +96,7 @@ def event_detection(location, batch_targets, batch, process_targets,
 
         entry = location.copy()
         entry['Target'] = target
-        entry['Batch'] = batch[:, i, :]
+        entry['Batch'] = batch[:many_trajectories, i, :]
         entry['Events'] = events
         entry['Parameters'] = parameters
         for j, m in enumerate(measurements):

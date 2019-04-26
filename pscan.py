@@ -2,9 +2,11 @@
 
 import itertools
 import numpy as np
+import pandas as pd
+import plot
 
 
-def pscan_view(pscan, subspace, targets):
+def pscan_view(pscan, subspace, *targets):
     """Select a subset of the output of a parameter scan.
 
     Args:
@@ -22,7 +24,20 @@ def pscan_view(pscan, subspace, targets):
     subpscan = np.bitwise_and.reduce(subpscan) if subpscan else True
     istarget = pscan['Target'].apply(lambda t: t in set(targets))
     selection = pscan.loc[istarget & subpscan]
-    return selection
+    return selection.reset_index()
+
+
+def organize_pscans(locations, data, n_processing):
+    pspace = pd.DataFrame(locations)
+    if n_processing:
+        pscans = []
+        for j in range(n_processing):
+            entries = []
+            for (l, location) in pspace.iterrows():
+                entries.extend(data[l][j])
+            pscans.append(pd.DataFrame(entries))
+        data = pscans
+    return pspace, data
 
 
 def walk_space(axes):

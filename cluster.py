@@ -59,7 +59,7 @@ def worker():
             print('msg worker!', mpi.rank(), msg)
 
 
-def setup_workers(seed, system, processing):
+def setup_workers(seed, system, processing, only_root_compiles=True):
     """Function to coordinate seeds and simulator compilation for
     subordinate MPI processes.
 
@@ -70,6 +70,9 @@ def setup_workers(seed, system, processing):
         processing (seq): Sequence of module and function name pairs
             which are imported and used by subordinate MPI processes.
 
+    TODO: Optimize by broadcasting setup to all 0th workers of each host
+    before waiting for success confirmation.
+
     """
     print('setting up workers')
     np.random.seed(seed)
@@ -78,11 +81,24 @@ def setup_workers(seed, system, processing):
         if not c == mpi.mpiroot:
             mpi.broadcast(('seed', seed), c)
     cluster = mpi.hosts()
-    for host in cluster:
-        if not host == 'root':
-            for j, c in enumerate(cluster[host]):
-                mpi.broadcast(('setup', system, processing, j == 0), c)
-                assert(mpi.pollrecv(c) == 'complete')
+    if only_root_compiles:
+        run = get_simulator(system, changed=True)
+        for host in cluster:
+            if not host == 'root':
+                for j, c in enumerate(cluster[host]):
+                    mpi.broadcast(('setup', system, processing, False), c)
+                for j, c in enumerate(cluster[host]):
+                    assert(mpi.pollrecv(c) == 'complete')
+    else:
+        for host in cluster:
+            if not host == 'root':
+                for j, c in enumerate(cluster[host]):
+                    mpi.broadcast(('setup', system, processing, j == 0), c)
+                    if j == 0:
+                        assert(mpi.pollrecv(c) == 'complete')
+                for j, c in enumerate(cluster[host]):
+                    if j > 0:
+                        assert(mpi.pollrecv(c) == 'complete')
     print('set up workers')
 
 
@@ -95,7 +111,7 @@ def dispatch(mpirun_path, mpiout_path):
         mpiout_path (str): Path where trajectory and results are stored.
 
     """
-    print('start dispatch', mpi.rank(), mpirun_path)
+    print('dispatch %d start: %d workers' % (mpi.rank(), mpi.size()))
     with open(mpirun_path, 'r') as f:
         mpirun = json.loads(f.read())
     setup_workers(mpirun['seed'], mpirun['system'], mpirun['processing'])
