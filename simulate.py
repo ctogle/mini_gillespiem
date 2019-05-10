@@ -21,7 +21,7 @@ def mp_run(arg):
 
 
 def worker(n, in_q, out_q, seed, system, processing):
-    targets = system.get('targets', [])
+    batch_targets = system.get('targets', [])
 
     np.random.seed(seed)
     run = get_simulator(system)
@@ -33,7 +33,7 @@ def worker(n, in_q, out_q, seed, system, processing):
             seeds = np.random.randint(0, maxseed, size=(batchsize, ), dtype=int)
             batch = np.array([run(s, **location) for s in seeds])
             if processing:
-                batch = [p(location, targets, batch) for p in processing]
+                batch = [p(location, batch_targets, batch, t) for p, t in processing]
             out_q.put(('ran', l, batch))
         else:
             print('msg (%d):' % n, msg)
@@ -50,37 +50,41 @@ def simulate(system, processing=[], batchsize=1, axes=None,
         iq, oq = mp.Queue(), mp.Queue()
         p = mp.Process(target=worker, args=(n, iq, oq, s, system, processing))
         p.start()
-        iq.put(('hello world', ))
+        #iq.put(('hello world', ))
         workers.append((iq, oq, p))
         idle.append(n)
 
     if axes:
         locations, trajectory = walk_space(axes)
 
-        data = [None] * len(trajectory)
-        while any([datum is None for datum in data]):
-            if idle and trajectory:
-                n = idle.pop(0)
-                iq, oq, p = workers[n]
-                l, loc = trajectory.pop(0)
-                iq.put(('run', l, loc, batchsize))
-                busy.append(n)
-                print('deployed', idle, busy)
-            elif busy:
-                for n in busy:
+        remaining = len(trajectory)
+        data = [None] * remaining
+        with tqdm.tqdm(total=remaining) as pbar:
+            while remaining:
+                if idle and trajectory:
+                    n = idle.pop(0)
                     iq, oq, p = workers[n]
-                    if not oq.empty():
-                        msg = oq.get()
-                        if msg[0] == 'ran':
-                            l, batch = msg[1], msg[2]
-                            data[l] = batch
-                            idle.append(n)
-                            busy.remove(n)
-                            print('returned', idle, busy)
-                            break
-                else:
-                    print('sleep', idle, busy)
-                    time.sleep(1)
+                    l, loc = trajectory.pop(0)
+                    iq.put(('run', l, loc, batchsize))
+                    busy.append(n)
+                    #print('deployed', idle, busy)
+                elif busy:
+                    for n in busy:
+                        iq, oq, p = workers[n]
+                        if not oq.empty():
+                            msg = oq.get()
+                            if msg[0] == 'ran':
+                                l, batch = msg[1], msg[2]
+                                data[l] = batch
+                                remaining -= 1
+                                pbar.update(1)
+                                idle.append(n)
+                                busy.remove(n)
+                                #print('returned', idle, busy)
+                                break
+                    else:
+                        #print('sleep', idle, busy)
+                        time.sleep(1)
 
     else:
         locations = {}
@@ -97,7 +101,9 @@ def simulate(system, processing=[], batchsize=1, axes=None,
     for iq, oq, p in workers:
         p.join()
 
-    return locations, data
+    pspace, pscans = organize_pscans(locations, data, len(processing))
+    return pspace, pscans
+    #return locations, data
 
 
 @contextmanager

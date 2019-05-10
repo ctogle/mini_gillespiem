@@ -10,7 +10,7 @@ def pscan_view(pscan, subspace, *targets):
     """Select a subset of the output of a parameter scan.
 
     Args:
-        pscan (pandas.DataFrame): The output of a parameter scan associated with a 
+        pscan (pandas.DataFrame): The output of a parameter scan associated with a
             single measurement process.
         subspace (dict): Dictionary where key, value pairs designate a subspace of
             the scanned parameter space.
@@ -28,13 +28,15 @@ def pscan_view(pscan, subspace, *targets):
 
 
 def organize_pscans(locations, data, n_processing):
+    """"""
     pspace = pd.DataFrame(locations)
     if n_processing:
         pscans = []
         for j in range(n_processing):
             entries = []
             for (l, location) in pspace.iterrows():
-                entries.extend(data[l][j])
+                entries.append(data[l][j])
+                #entries.extend(data[l][j])
             pscans.append(pd.DataFrame(entries))
         data = pscans
     return pspace, data
